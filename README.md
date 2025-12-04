@@ -1,143 +1,260 @@
-# Banking Documents API
+# 🏦 Banking Documents API
 
-API backend for secure document storage, sharing and audit logging — built on Laravel 12.
+API Laravel 12 pour la gestion sécurisée de documents bancaires confidentiels (KYC, contrats) avec chiffrement, scan antivirus et partage temporaire.
 
-This README documents the project specifics and the recent development decisions made in this repository (authentication, sharing, audit, queue jobs, policies, and routes).
+## 🎯 Contexte académique
 
-## Quick start
+Projet complet démontrant :
 
--   Requirements: PHP 8.2+, Composer, MySQL (or SQLite for local), Node (optional for assets)
--   Install dependencies and prepare environment:
+-   ✅ Architecture Laravel professionnelle
+-   ✅ Sécurité bancaire (chiffrement AES-256)
+-   ✅ Conformité RGPD (audit, traçabilité)
+-   ✅ Scan antivirus asynchrone (ClamAV)
+-   ✅ Partage sécurisé via URL signée
+-   ✅ Tests automatisés (PHPUnit)
+-   ✅ API RESTful documentée
+
+## 🚀 Fonctionnalités
+
+### 📤 Gestion de documents
+
+-   Upload avec chiffrement automatique (AES-256-CBC)
+-   Stockage dans `storage/app/private/documents` (jamais public)
+-   Vérification d'intégrité (checksum SHA-256)
+-   Scan antivirus obligatoire (ClamAV via queue)
+-   Types supportés : PDF, JPG, PNG, DOC, DOCX, XLS, XLSX
+-   Taille max : 10 MB
+
+### 🔗 Partage temporaire
+
+-   Génération d'URLs signées à usage unique
+-   Expiration configurable (1-168 heures)
+-   Limite de téléchargements (1-100)
+-   Révocation possible
+-   Accès sans authentification
+
+### 📊 Audit RGPD
+
+-   Journalisation de toutes les actions
+-   Export CSV des logs
+-   Aucune donnée sensible dans les logs
+-   Traçabilité IP + User-Agent
+
+### 🛡️ Sécurité
+
+-   Chiffrement de bout en bout
+-   Scan antivirus asynchrone
+-   Policies Laravel (ownership)
+-   Authentification Sanctum
+-   Soft delete (récupération possible)
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│           API Laravel 12                    │
+├─────────────────────────────────────────────┤
+│  Controllers → Services → Models             │
+│  ├─ DocumentService (CRUD chiffré)           │
+│  ├─ EncryptionService (AES-256)              │
+│  ├─ AntivirusService (ClamAV => coming soon) │
+│  └─ SharingService (URL signée)              │
+├─────────────────────────────────────────────┤
+│  Middleware: EnsureDocumentAccess            │
+│  Policies: DocumentPolicy (ownership)        │
+│  Jobs: ScanAntivirusJob (queue)              │
+└─────────────────────────────────────────────┘
+         ↓                    ↓
+    MySQL 8+            Redis (Queue)
+         ↓
+  storage/app/private/documents
+     (fichiers chiffrés)
+```
+
+## 📦 Technologies
+
+-   **Framework** : Laravel 12
+-   **Base de données** : MySQL 8+
+-   **Cache/Queue** : Redis
+-   **Chiffrement** : AES-256-CBC (Laravel Crypt)
+-   **Antivirus** : ClamAV
+-   **Auth** : Laravel Sanctum
+-   **Tests** : PHPUnit
+
+
+## 🚀 Quick Start
 
 ```bash
+# 1. Installation
 composer install
 cp .env.example .env
-# configure DB in .env
 php artisan key:generate
-php artisan migrate --seed
-```
 
-## Authentication
-
--   The project uses Laravel Sanctum for API token authentication. The `User` model uses `HasApiTokens` and `AuthController` implements `register`, `login` and `logout` returning plain-text tokens.
--   Use the `Authorization: Bearer <token>` header for protected routes.
-
-Commands to prepare Sanctum (if needed):
-
-```bash
-php artisan vendor:publish --provider="Laravel\Sanctum\SanctumServiceProvider"
+# 2. Base de données
 php artisan migrate
+
+# 3. Stockage
+mkdir -p storage/app/private/documents
+chmod -R 775 storage
+
+# 4. Lancer l'API
+php artisan serve
+
+# 5. Lancer le worker (scan antivirus)
+php artisan queue:work
 ```
 
-## Routes overview
-
--   Public routes (no auth):
-
-    -   `POST /api/auth/register` — register
-    -   `POST /api/auth/login` — login
-    -   `GET  /api/documents/share/{token}` — download public share
-    -   `GET  /api/documents/share/{token}/info` — public metadata
-
--   Protected routes (require `auth:sanctum`):
-    -   `POST   /api/auth/logout`
-    -   `GET    /api/auth/user` — current user
-    -   `POST   /api/documents` — upload document
-    -   `GET    /api/documents` — list user's documents
-    -   `GET    /api/documents/{id}` — show document
-    -   `GET    /api/documents/{id}/download` — download (policy protected)
-    -   `DELETE /api/documents/{id}` — delete
-    -   `POST   /api/documents/{id}/share` — create share
-    -   `GET    /api/documents/{id}/shares` — list shares
-
-You can list routes with:
+## 🧪 Tests
 
 ```bash
-php artisan route:list --path=api
-```
-
-## Middleware and API JSON responses
-
--   The application override `app/Http/Middleware/Authenticate.php` so API requests return JSON 401 responses (instead of redirect to `login`) when unauthenticated.
--   FormRequests were adjusted (`failedValidation`) to always return JSON 422 so clients get consistent API validation responses even without `Accept: application/json` header.
-
-## Authorization (Policies)
-
--   Policies are registered via `app/Providers/AuthServiceProvider.php`.
--   `DocumentPolicy` implements `view`, `download`, `share` and `delete` rules (ownership-based and checks document status for share/download).
--   Controllers use `$this->authorize('download', $document)` etc. Make sure policies are loaded; clear cache if you change providers:
-
-```bash
-php artisan config:clear
-php artisan cache:clear
-```
-
-## Audit logging
-
--   An `Audit` model and `audits` table track actions (RGPD-friendly): created, viewed, downloaded, shared, share_accessed, scans, etc.
--   Use `Audit::log($actionEnum, $auditableModel, $userId?, $userEmail?, $metadata?)` to write an audit entry. The helper stores `user_id`, `auditable_type`, `auditable_id`, `action`, `metadata`, `ip_address`, `user_agent`, `created_at`.
--   The `audits` table intentionally only stores `created_at` (no `updated_at`) and the model disables Eloquent timestamps.
-
-## Sharing
-
--   `SharingService` creates `DocumentShare` records with token, expiry, max downloads and `is_active` flag.
--   Public routes allow downloading by token and listing share info. Accesses are recorded via `SharingService::recordAccess()` which increments counters and disables expired/overused shares.
-
-## Queue & background jobs
-
--   File uploads dispatch a `ScanAntivirusJob` to queue `default` to simulate antivirus scanning.
--   Default queue connection in `config/queue.php` is `database`. To process jobs once:
-
-```bash
-php artisan queue:work --once --queue=default
-```
-
--   To run worker continuously:
-
-```bash
-php artisan queue:work --queue=default
-```
-
-## Storage
-
--   Uploaded files are stored under `storage/app/private/documents`. Ensure `storage` is writable.
-
-## Testing
-
--   Run the test suite:
-
-```bash
-composer test
-# or
+# Tous les tests
 php artisan test
+
+# Tests avec couverture
+php artisan test --coverage
+
+# Test spécifique
+php artisan test --filter DocumentServiceTest
 ```
 
-## Useful commands
+## 📍 Endpoints principaux
 
--   Regenerate autoload & clear caches:
+| Méthode | Endpoint                       | Description                |
+| ------- | ------------------------------ | -------------------------- |
+| POST    | `/api/auth/register`           | Sign Up                    |
+| POST    | `/api/auth/login`              | Log in                     |
+| POST    | `/api/auth/logout`             | Log out                    |
+
+| POST    | `/api/documents`               | Upload document            |
+| GET     | `/api/documents`               | Liste documents            |
+| GET     | `/api/documents/{id}`          | Détails document           |
+| GET     | `/api/documents/{id}/download` | Télécharge document        |
+| DELETE  | `/api/documents/{id}`          | Supprime document          |
+| POST    | `/api/documents/{id}/share`    | Crée partage               |
+| GET     | `/api/documents/share/{token}` | Accède au partage (public) |
+
+| GET     | `/api/audit`                   | Logs d'audit               |
+
+## 🔑 Authentification
+
+L'API utilise **Laravel Sanctum** :
 
 ```bash
-composer dump-autoload
-php artisan config:clear
-php artisan cache:clear
-php artisan route:clear
-php artisan view:clear
-php artisan clear-compiled
+# Créer un token
+php artisan tinker
+$token = App\Models\User::first()->createToken('api')->plainTextToken;
 ```
 
--   Re-run migrations and seeders (destructive):
+Utiliser le token :
 
 ```bash
-php artisan migrate:fresh --seed
+curl -H "Authorization: Bearer {token}" http://localhost:8000/api/documents
 ```
 
-## Notes & recommendations for after deployment
+## 📊 Statuts de document
 
--   The project includes example implementations for services (`DocumentService`, `SharingService`) and policies. For production, consider:
-    -   using a real antivirus scanner job,
-    -   protecting shared downloads with optional password or signed URLs,
-    -   adding rate-limiting on public share endpoints,
-    -   reviewing retention/archiving for audit logs.
+| Statut         | Description                     |
+| -------------- | ------------------------------- |
+| `pending_scan` | En attente d'analyse antivirus  |
+| `scanning`     | Scan en cours                   |
+| `clean`        | Validé, téléchargeable          |
+| `infected`     | Virus détecté, fichier supprimé |
+| `failed`       | Échec du scan                   |
 
-If you want, I can add a small section with curl examples for register/login/upload/download and create automated Feature tests that assert authentication/authorization and audit writing.
+## 🛡️ Sécurité
+
+### Chiffrement
+
+-   Algorithme : AES-256-CBC
+-   Clé : `APP_KEY` dans `.env`
+-   Fichiers jamais stockés en clair
+
+### Antivirus
+
+-   ClamAV via daemon `clamd`
+-   Scan asynchrone (queue Redis)
+-   Suppression automatique si virus détecté
+
+### Partage
+
+-   Token unique 64 caractères
+-   Expiration temporelle
+-   Limite de téléchargements
+-   Révocation possible
+
+### RGPD
+
+-   Audit de toutes les actions
+-   Pas de logs de contenu
+-   Export CSV des données personnelles
+-   Soft delete (droit à l'oubli)
+
+## 🏭 Environnement de production
+
+### Prérequis
+
+-   PHP 8.2+ avec extensions : PDO, OpenSSL, Redis
+-   Mysql 8+
+-   Redis 7+
+-   ClamAV avec daemon actif
+-   Supervisor (pour queues)
+
+### Optimisations
+
+```bash
+# Cache de configuration
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+
+# OPcache activé
+# Redis pour sessions et cache
+```
+
+### Monitoring recommandé
+
+-   **Logs** : Sentry, Bugsnag
+-   **Performances** : New Relic, Laravel Telescope
+-   **Uptime** : Pingdom, UptimeRobot
+
+## 🧑‍💻 Développement
+
+### Structure des modules
+
+```
+app/
+├── Enums/              # DocumentStatus, AuditAction
+├── Http/
+│   ├── Controllers/    # DocumentController, SharingController
+│   ├── Middleware/     # EnsureDocumentAccess
+│   └── Requests/       # StoreDocumentRequest, ShareDocumentRequest
+├── Jobs/               # ScanAntivirusJob
+├── Models/             # Document, DocumentShare, Audit
+├── Policies/           # DocumentPolicy
+├── Services/           # DocumentService, EncryptionService, etc.
+└── Exceptions/         # VirusDetectedException
+```
+
+### Conventions de code
+
+-   PSR-12 : Standard de code PHP
+-   Services pour la logique métier
+-   Policies pour l'autorisation
+-   Jobs pour les tâches asynchrones
+-   Form Requests pour la validation
+
+## 👨‍🎓 Auteur
+
+Brice GOUDALO x)
+Camélia SOGLO :D
+
+## 🔗 Ressources
+
+-   [Laravel Documentation](https://laravel.com/docs/12.x)
+-   [ClamAV Documentation](https://docs.clamav.net/)
+-   [Laravel Sanctum](https://laravel.com/docs/12.x/sanctum)
+-   [RGPD Compliance](https://www.cnil.fr/fr/rgpd-par-ou-commencer)
 
 ---
+
+**⚠️ Important** : Ce projet est conçu pour un environnement d'apprentissage. Pour un usage en production bancaire réelle, des audits de sécurité professionnels sont indispensables.
