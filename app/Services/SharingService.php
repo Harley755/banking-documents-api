@@ -13,14 +13,14 @@ class SharingService
     {
         $token = Str::random(64);
 
-        Log::info("Max downloads: " . ($data['max_downloads'] ?? 100));
+        Log::info("Max downloads: " . ($data['max_downloads'] ?? 5));
 
         $share = DocumentShare::create([
             'document_id' => $document->id,
             'token' => $token,
             'shared_with_email' => $data['shared_with_email'] ?? null,
             'expires_at' => $data['expires_at'] ?? now()->addHours(24),
-            'max_downloads' => $data['max_downloads'] ?? 100,
+            'max_downloads' => $data['max_downloads'] ?? 5,
             'download_count' => 0,
             'is_active' => true,
         ]);

@@ -66,7 +66,7 @@ class ShareDocumentRequest extends FormRequest
     {
         $this->merge([
             'expires_in_hours' => $this->expires_in_hours ?? 24,
-            'max_downloads' => $this->max_downloads ?? 1,
+            'max_downloads' => $this->max_downloads ?? 5,
         ]);
     }
 }

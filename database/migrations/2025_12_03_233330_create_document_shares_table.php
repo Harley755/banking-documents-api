@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('token', 128)->unique();
             $table->string('shared_with_email')->nullable();
             $table->timestamp('expires_at')->nullable();
-            $table->unsignedInteger('max_downloads')->default(1);
+            $table->unsignedInteger('max_downloads')->default(5);
             $table->unsignedInteger('download_count')->default(0);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
